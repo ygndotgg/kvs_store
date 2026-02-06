@@ -1,0 +1,93 @@
+warning: unused variable: `a`
+  --> src/kvs.rs:19:26
+   |
+19 |     pub fn remove(&self, a: String) {}
+   |                          ^ help: if this is intentional, prefix it with an underscore: `_a`
+   |
+   = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: `kvs` (lib) generated 1 warning (run `cargo fix --lib -p kvs` to apply 1 suggestion)
+warning: `kvs` (lib test) generated 1 warning (1 duplicate)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.02s
+     Running unittests src/lib.rs (target/debug/deps/kvs-9e886155ebb92d8e)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/main.rs (target/debug/deps/kvs-b73801d98ab73594)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/tests.rs (target/debug/deps/tests-51fa0c030c894156)
+
+running 13 tests
+test get_non_existent_value ... ok
+test get_stored_value ... ok
+test overwrite_value ... ok
+test cli_get ... FAILED
+test remove_key ... FAILED
+test cli_version ... ok
+test cli_set ... FAILED
+test cli_no_args ... ok
+test cli_invalid_subcommand ... ok
+test cli_invalid_get ... ok
+test cli_rm ... FAILED
+test cli_invalid_rm ... ok
+test cli_invalid_set ... ok
+
+failures:
+
+---- cli_get stdout ----
+
+thread 'cli_get' (6754) panicked at /home/ygn/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/assert_cmd-0.11.1/src/assert.rs:181:13:
+Unexpected success
+command=`"/home/ygn/Desktop/Projects/kvs/target/debug/kvs" "get" "key1"`
+code=0
+stdout=```None
+```
+stderr=``````
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- remove_key stdout ----
+
+thread 'remove_key' (6775) panicked at tests/tests.rs:154:5:
+assertion `left == right` failed
+  left: Some("value1")
+ right: None
+
+---- cli_set stdout ----
+
+thread 'cli_set' (6766) panicked at /home/ygn/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/assert_cmd-0.11.1/src/assert.rs:181:13:
+Unexpected success
+command=`"/home/ygn/Desktop/Projects/kvs/target/debug/kvs" "set" "key1" "value1"`
+code=0
+stdout=```Setted
+```
+stderr=``````
+
+
+---- cli_rm stdout ----
+
+thread 'cli_rm' (6763) panicked at /home/ygn/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/assert_cmd-0.11.1/src/assert.rs:181:13:
+Unexpected success
+command=`"/home/ygn/Desktop/Projects/kvs/target/debug/kvs" "rm" "key1"`
+code=0
+stdout=```Removed
+```
+stderr=``````
+
+
+
+failures:
+    cli_get
+    cli_rm
+    cli_set
+    remove_key
+
+test result: FAILED. 9 passed; 4 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `--test tests`
