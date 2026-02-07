@@ -1,5 +1,5 @@
-use std::collections::HashMap;
-
+use crate::Result;
+use std::{collections::HashMap, path::PathBuf};
 /// # A implementatoin of Key Value Store
 
 pub struct KvStore {
@@ -14,7 +14,7 @@ impl KvStore {
     /// use kvs::kvs::KvStore;
     /// let store = KvStore::new();
     /// ````
-    pub fn new() -> Self {
+    pub fn new() -> KvStore {
         KvStore {
             store: HashMap::new(),
         }
@@ -28,9 +28,10 @@ impl KvStore {
     ///
     /// store.set("key".to_string(), "value".to_string());
     /// ```
-    pub fn set(&mut self, a: String, b: String) {
-        self.store.insert(a, b);
+    pub fn set(&mut self, _key: String, _value: String) -> Result<()> {
+        panic!("not yet implemented")
     }
+    //
     /// # Gets a Value
     /// ## its get a value from the store
     /// # Example
@@ -42,17 +43,15 @@ impl KvStore {
     /// store.get("key".to_string());
     ///
     ///
-    pub fn get(&self, a: String) -> Option<String> {
-        self.store.get(&a).cloned()
+    pub fn get(&self, _key: String) -> Result<Option<String>> {
+        panic!("not yet implemented")
     }
 
-    pub fn remove(&mut self, a: String) {
-        self.store.remove(&a);
+    pub fn remove(&mut self, _key: String) -> Result<()> {
+        panic!("not yet implemented")
+    }
+
+    pub fn open(_path: impl Into<PathBuf>) -> Result<KvStore> {
+        panic!("not yet implemented")
     }
 }
-
-pub fn main() {
-    println!("JAI");
-}
-
-pub fn kvs() {}

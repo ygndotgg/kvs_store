@@ -1,5 +1,8 @@
 use clap::{Parser, Subcommand};
 use kvs::kvs::KvStore;
+use kvs::Result;
+use std::env;
+use std::process;
 
 #[derive(Parser)]
 #[command(about,version,long_about=None)]
@@ -14,31 +17,31 @@ enum Method {
     Get { key: String },
     Rm { key: String },
 }
-enum ResultValue {
-    Optional(Option<String>),
-    Nothing,
-}
 
-pub fn main() {
-    let ag = Cli::parse();
-    let mut d = KvStore::new();
-    let pkd: ResultValue = match ag.func {
+pub fn main() -> Result<()> {
+    let cli = Cli::parse();
+    let current_dir = env::current_dir()?;
+
+    match cli.func {
         Method::Set { key, value } => {
-            d.set(key, value);
-            println!("Setted");
-            ResultValue::Nothing
+            let mut store = KvStore::open(&current_dir)?;
+            store.set(key, value)?;
         }
-        Method::Get { key } => ResultValue::Optional(d.get(key)),
+        Method::Get { key } => {
+            let store = KvStore::open(&current_dir)?;
+            match store.get(key)? {
+                Some(value) => println!("{}", value),
+                None => println!("Key not found"),
+            }
+        }
         Method::Rm { key } => {
-            println!("Removed");
-            d.remove(key);
-            ResultValue::Nothing
+            let mut store = KvStore::open(&current_dir)?;
+            if let Err(_) = store.remove(key) {
+                println!("Key not found");
+                process::exit(1);
+            }
         }
-    };
-    match pkd {
-        ResultValue::Optional(st) => {
-            println!("{:?}", st);
-        }
-        ResultValue::Nothing => {}
     }
+
+    Ok(())
 }
