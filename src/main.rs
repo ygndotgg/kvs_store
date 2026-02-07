@@ -1,6 +1,8 @@
 use clap::{Parser, Subcommand};
-use kvs::kvs::KvStore;
 use kvs::Result;
+use kvs::kvs::KvStore;
+use serde::Deserialize;
+use serde::Serialize;
 use std::env;
 use std::process;
 
@@ -10,6 +12,7 @@ struct Cli {
     #[command(subcommand)]
     func: Method,
 }
+
 
 #[derive(Subcommand)]
 enum Method {
