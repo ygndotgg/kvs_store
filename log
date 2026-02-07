@@ -1,1 +1,3 @@
 {"Set":{"key":"gagan","value":"naidu"}}
+{"Rm":{"key":"gagan"}}
+{"Set":{"key":"aba","value":"aha"}}

@@ -1,8 +1,6 @@
 use clap::{Parser, Subcommand};
 use kvs::Result;
 use kvs::kvs::KvStore;
-use serde::Deserialize;
-use serde::Serialize;
 use std::env;
 use std::process;
 
@@ -12,7 +10,6 @@ struct Cli {
     #[command(subcommand)]
     func: Method,
 }
-
 
 #[derive(Subcommand)]
 enum Method {
@@ -31,7 +28,7 @@ pub fn main() -> Result<()> {
             store.set(key, value)?;
         }
         Method::Get { key } => {
-            let store = KvStore::open(&current_dir)?;
+            let mut store = KvStore::open(&current_dir)?;
             match store.get(key)? {
                 Some(value) => println!("{}", value),
                 None => println!("Key not found"),
