@@ -1,6 +1,7 @@
 use std::{fmt::Display, net::SocketAddr, process};
 
 use clap::Parser;
+use log::info;
 
 #[derive(Parser)]
 #[command(version, about)]
@@ -29,6 +30,10 @@ impl Display for EngineName {
 
 pub fn main() {
     let cli = Cli::parse();
+
+    env_logger::builder()
+        .filter_level(log::LevelFilter::Info)
+        .init();
     let addr = cli.addr.parse::<SocketAddr>().unwrap_or_else(|k| {
         println!("{:?}", k);
         process::exit(1);
@@ -46,7 +51,7 @@ pub fn main() {
             std::process::exit(1);
         }
     };
-    eprintln!("kvs-server version:{}", env!("CARGO_PKG_VERSION"));
-    eprintln!("engine:{}", engine);
-    eprintln!("listening on:{}", addr);
+    info!("kvs-server version:{}", env!("CARGO_PKG_VERSION"));
+    info!("engine:{}", engine);
+    info!("listening on:{}", addr);
 }
