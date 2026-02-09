@@ -1,4 +1,5 @@
 use crate::Cmd;
+use crate::KvsEngine;
 use crate::Result;
 use std::fs::OpenOptions;
 use std::io::BufWriter;
@@ -37,142 +38,6 @@ pub struct KvStore {
 }
 
 impl KvStore {
-    fn compact(&mut self) -> Result<()> {
-        // Step A: Pick new file IDs
-        let compaction_file_id = self.current_file_id + 1;
-        let new_writer_file_id = self.current_file_id + 2;
-
-        // Step B: Create the compaction file and its writer
-        let compact_path = log_pathe(&self.dir_path, compaction_file_id);
-        let mut compact_writer = BufWriter::new(
-            OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open(&compact_path)?,
-        );
-
-        // Step C: Write all live entries to the compaction file
-        let mut new_offset: u64 = 0;
-        for log_ptr in self.store.values_mut() {
-            // Read the old command from the old file
-            let reader = self
-                .reader
-                .get_mut(&log_ptr.file_id)
-                .ok_or_else(|| failure::err_msg("reader not found"))?;
-            reader.seek(SeekFrom::Start(log_ptr.offset))?;
-            let mut buf = vec![0u8; log_ptr.length as usize];
-            reader.read_exact(&mut buf)?;
-
-            // Write it to the compaction file
-            compact_writer.write_all(&buf)?;
-
-            // Update this LogPointer IN PLACE to point to the new location
-            log_ptr.offset = new_offset;
-            log_ptr.length = buf.len() as u64;
-            log_ptr.file_id = compaction_file_id;
-
-            new_offset += buf.len() as u64;
-        }
-        compact_writer.flush()?;
-
-        // Step D: Collect the old file IDs we need to delete
-        let old_file_ids: Vec<u64> = self.reader.keys().copied().collect();
-
-        // Step E: Remove old readers and delete old files
-        for old_id in old_file_ids {
-            self.reader.remove(&old_id);
-            std::fs::remove_file(log_pathe(&self.dir_path, old_id))?;
-        }
-
-        // Step F: Open a reader for the compaction file
-        self.reader.insert(
-            compaction_file_id,
-            BufReader::new(File::open(&compact_path)?),
-        );
-
-        // Step G: Create the new writer file for future writes
-        self.current_file_id = new_writer_file_id;
-        let new_writer_path = log_pathe(&self.dir_path, new_writer_file_id);
-        self.writer = BufWriter::new(
-            OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open(&new_writer_path)?,
-        );
-        self.reader.insert(
-            new_writer_file_id,
-            BufReader::new(File::open(&new_writer_path)?),
-        );
-
-        // Step H: Reset the dead byte counter
-        self.uncompacted_bytes = 0;
-
-        Ok(())
-    }
-    pub fn set(&mut self, key: String, value: String) -> Result<()> {
-        let cmd: Cmd = Cmd::Set {
-            key: key.clone(),
-            value: value.clone(),
-        };
-        let serialized = serde_json::to_string(&cmd)?;
-        let offset = self.writer.seek(SeekFrom::Current(0))?;
-        writeln!(self.writer, "{}", serialized)?;
-        self.writer.flush()?;
-        let length = serialized.len() as u64 + 1;
-        if let Some(old_ptr) = self.store.insert(
-            key,
-            LogPointer {
-                offset,
-                length,
-                file_id: self.current_file_id,
-            },
-        ) {
-            self.uncompacted_bytes += old_ptr.length;
-        }
-        if self.uncompacted_bytes > COMPACTION_THRESHOLD {
-            self.compact()?;
-        }
-        Ok(())
-    }
-    pub fn get(&mut self, key: String) -> Result<Option<String>> {
-        match self.store.get(&key) {
-            None => Ok(None),
-            Some(log_ptr) => {
-                let reader = self
-                    .reader
-                    .get_mut(&log_ptr.file_id)
-                    .ok_or_else(|| failure::err_msg("Log file not found"))?;
-                reader.seek(SeekFrom::Start(log_ptr.offset))?;
-                let mut buf = vec![0u8; log_ptr.length as usize];
-                reader.read_exact(&mut buf)?;
-                let line = String::from_utf8(buf)?;
-                let cmd: Cmd = serde_json::from_str(line.trim())?;
-                match cmd {
-                    Cmd::Set { value, .. } => Ok(Some(value)),
-                    Cmd::Rm { .. } => Ok(None),
-                }
-            }
-        }
-    }
-
-    pub fn remove(&mut self, key: String) -> Result<()> {
-        if !self.store.contains_key(&key) {
-            return Err(failure::err_msg("Key not found"));
-        }
-        let cmd = Cmd::Rm { key: key.clone() };
-        let serialized = serde_json::to_string(&cmd)?;
-        writeln!(self.writer, "{}", serialized)?;
-        self.writer.flush()?;
-        if let Some(old_ptr) = self.store.remove(&key) {
-            self.uncompacted_bytes += old_ptr.length;
-        }
-        self.uncompacted_bytes += serialized.len() as u64 + 1;
-        if self.uncompacted_bytes > COMPACTION_THRESHOLD {
-            self.compact()?;
-        }
-        Ok(())
-    }
-
     pub fn open(path: impl Into<PathBuf>) -> Result<KvStore> {
         let dir = path.into();
         let mut file_ids: Vec<u64> = std::fs::read_dir(&dir)?
@@ -246,6 +111,144 @@ impl KvStore {
             uncompacted_bytes: uncompacted,
             dir_path: dir,
         })
+    }
+    fn compact(&mut self) -> Result<()> {
+        // Step A: Pick new file IDs
+        let compaction_file_id = self.current_file_id + 1;
+        let new_writer_file_id = self.current_file_id + 2;
+
+        // Step B: Create the compaction file and its writer
+        let compact_path = log_pathe(&self.dir_path, compaction_file_id);
+        let mut compact_writer = BufWriter::new(
+            OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&compact_path)?,
+        );
+
+        // Step C: Write all live entries to the compaction file
+        let mut new_offset: u64 = 0;
+        for log_ptr in self.store.values_mut() {
+            // Read the old command from the old file
+            let reader = self
+                .reader
+                .get_mut(&log_ptr.file_id)
+                .ok_or_else(|| failure::err_msg("reader not found"))?;
+            reader.seek(SeekFrom::Start(log_ptr.offset))?;
+            let mut buf = vec![0u8; log_ptr.length as usize];
+            reader.read_exact(&mut buf)?;
+
+            // Write it to the compaction file
+            compact_writer.write_all(&buf)?;
+
+            // Update this LogPointer IN PLACE to point to the new location
+            log_ptr.offset = new_offset;
+            log_ptr.length = buf.len() as u64;
+            log_ptr.file_id = compaction_file_id;
+
+            new_offset += buf.len() as u64;
+        }
+        compact_writer.flush()?;
+
+        // Step D: Collect the old file IDs we need to delete
+        let old_file_ids: Vec<u64> = self.reader.keys().copied().collect();
+
+        // Step E: Remove old readers and delete old files
+        for old_id in old_file_ids {
+            self.reader.remove(&old_id);
+            std::fs::remove_file(log_pathe(&self.dir_path, old_id))?;
+        }
+
+        // Step F: Open a reader for the compaction file
+        self.reader.insert(
+            compaction_file_id,
+            BufReader::new(File::open(&compact_path)?),
+        );
+
+        // Step G: Create the new writer file for future writes
+        self.current_file_id = new_writer_file_id;
+        let new_writer_path = log_pathe(&self.dir_path, new_writer_file_id);
+        self.writer = BufWriter::new(
+            OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&new_writer_path)?,
+        );
+        self.reader.insert(
+            new_writer_file_id,
+            BufReader::new(File::open(&new_writer_path)?),
+        );
+
+        // Step H: Reset the dead byte counter
+        self.uncompacted_bytes = 0;
+
+        Ok(())
+    }
+}
+
+impl KvsEngine for KvStore {
+    fn set(&mut self, key: String, value: String) -> Result<()> {
+        let cmd: Cmd = Cmd::Set {
+            key: key.clone(),
+            value: value.clone(),
+        };
+        let serialized = serde_json::to_string(&cmd)?;
+        let offset = self.writer.seek(SeekFrom::Current(0))?;
+        writeln!(self.writer, "{}", serialized)?;
+        self.writer.flush()?;
+        let length = serialized.len() as u64 + 1;
+        if let Some(old_ptr) = self.store.insert(
+            key,
+            LogPointer {
+                offset,
+                length,
+                file_id: self.current_file_id,
+            },
+        ) {
+            self.uncompacted_bytes += old_ptr.length;
+        }
+        if self.uncompacted_bytes > COMPACTION_THRESHOLD {
+            self.compact()?;
+        }
+        Ok(())
+    }
+    fn get(&mut self, key: String) -> Result<Option<String>> {
+        match self.store.get(&key) {
+            None => Ok(None),
+            Some(log_ptr) => {
+                let reader = self
+                    .reader
+                    .get_mut(&log_ptr.file_id)
+                    .ok_or_else(|| failure::err_msg("Log file not found"))?;
+                reader.seek(SeekFrom::Start(log_ptr.offset))?;
+                let mut buf = vec![0u8; log_ptr.length as usize];
+                reader.read_exact(&mut buf)?;
+                let line = String::from_utf8(buf)?;
+                let cmd: Cmd = serde_json::from_str(line.trim())?;
+                match cmd {
+                    Cmd::Set { value, .. } => Ok(Some(value)),
+                    Cmd::Rm { .. } => Ok(None),
+                }
+            }
+        }
+    }
+
+    fn remove(&mut self, key: String) -> Result<()> {
+        if !self.store.contains_key(&key) {
+            return Err(failure::err_msg("Key not found"));
+        }
+        let cmd = Cmd::Rm { key: key.clone() };
+        let serialized = serde_json::to_string(&cmd)?;
+        writeln!(self.writer, "{}", serialized)?;
+        self.writer.flush()?;
+        if let Some(old_ptr) = self.store.remove(&key) {
+            self.uncompacted_bytes += old_ptr.length;
+        }
+        self.uncompacted_bytes += serialized.len() as u64 + 1;
+        if self.uncompacted_bytes > COMPACTION_THRESHOLD {
+            self.compact()?;
+        }
+        Ok(())
     }
 }
 

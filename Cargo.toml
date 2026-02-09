@@ -7,13 +7,18 @@ edition = "2024"
 
 
 
+
 [dev-dependencies]
-assert_cmd = "0.11.0"
+assert_cmd = "0.11"
+criterion = "0.3"
 predicates = "1.0.0"
-tempfile="3.0.7"
-walkdir ="2.2.7"
+rand = "0.6.5"
+tempfile = "3.0.7"
+walkdir = "2.2.7"
 [dependencies]
 clap = { version = "4.5.57", features = ["derive"] }
+env_logger = "0.11.8"
 failure = "0.1.8"
+log = "0.4.29"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
