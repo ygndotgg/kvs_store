@@ -1,7 +1,11 @@
-use std::{fmt::Display, net::SocketAddr, process};
+use std::{
+    fmt::Display,
+    net::{SocketAddr, TcpListener},
+    process,
+};
 
 use clap::Parser;
-use log::info;
+use log::{error, info};
 
 #[derive(Parser)]
 #[command(version, about)]
@@ -28,7 +32,7 @@ impl Display for EngineName {
     }
 }
 
-pub fn main() {
+pub fn main() -> Result<(), std::io::Error> {
     let cli = Cli::parse();
 
     env_logger::builder()
@@ -38,6 +42,7 @@ pub fn main() {
         println!("{:?}", k);
         process::exit(1);
     });
+
     // let engine:EngineName =
     let engine = match cli.engine {
         Some(s) => s,
@@ -54,4 +59,19 @@ pub fn main() {
     info!("kvs-server version:{}", env!("CARGO_PKG_VERSION"));
     info!("engine:{}", engine);
     info!("listening on:{}", addr);
+    let listener = TcpListener::bind(addr).unwrap_or_else(|e| {
+        eprintln!("Failed to bind:{}", e);
+        std::process::exit(1);
+    });
+    for stream in listener.incoming() {
+        let stream = match stream {
+            Ok(stream) => {
+                info!("accepted connection from {}", stream.peer_addr()?);
+            }
+            Err(e) => {
+                error!("connection failed:{}", e);
+            }
+        };
+    }
+    Ok(())
 }

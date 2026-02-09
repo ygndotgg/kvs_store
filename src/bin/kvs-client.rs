@@ -1,3 +1,5 @@
+use std::net::{SocketAddr, TcpStream};
+
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
@@ -31,15 +33,42 @@ fn main() {
     let cli = Cli::parse();
     match cli.command {
         Command::Set { key, value, addr } => {
-            eprintln!("unimplemented");
+            let addr = addr.parse::<SocketAddr>().unwrap_or_else(|e| {
+                eprintln!("{}", e);
+                std::process::exit(1);
+            });
+            let stream = TcpStream::connect(addr).unwrap_or_else(|e| {
+                eprintln!("{}", e);
+                std::process::exit(1);
+            });
+
+            eprintln!(" SET unimplemented");
             std::process::exit(1);
         }
         Command::Get { key, addr } => {
-            eprintln!("unimplemented");
+            let addr = addr.parse::<SocketAddr>().unwrap_or_else(|e| {
+                eprintln!("{}", e);
+                std::process::exit(1);
+            });
+            let stream = TcpStream::connect(addr).unwrap_or_else(|e| {
+                eprintln!("{}", e);
+                std::process::exit(1);
+            });
+
+            eprintln!(" GET unimplemented");
             std::process::exit(1);
         }
         Command::Rm { key, addr } => {
-            eprintln!("unimplemented");
+            let addr = addr.parse::<SocketAddr>().unwrap_or_else(|e| {
+                eprintln!("{}", e);
+                std::process::exit(1);
+            });
+            let stream = TcpStream::connect(addr).unwrap_or_else(|e| {
+                eprintln!("{}", e);
+                std::process::exit(1);
+            });
+
+            eprintln!(" Rm unimplemented");
             std::process::exit(1);
         }
     }
