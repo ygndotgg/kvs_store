@@ -6,6 +6,7 @@ use std::{
 };
 
 use clap::Parser;
+use kvs::SledKvsEngine;
 use kvs::{KvStore, KvsEngine, Request, Response};
 use log::{error, info};
 
@@ -101,6 +102,29 @@ pub fn main() {
         std::process::exit(1);
     });
 
+    let engine_file = current_dir.join("engine");
+    let engine_name = if engine_file.exists() {
+        let previous = std::fs::read_to_string(&engine_file).unwrap_or_else(|e| {
+            eprintln!("{}", e);
+            std::process::exit(1);
+        });
+        let previous = previous.trim().to_string();
+        let requested = cli.engine.to_lowercase();
+        if requested != previous {
+            eprintln!(
+                "Wrong engine! Data was created with {} but {} was requested",
+                previous, requested
+            );
+            std::process::exit(1);
+        }
+        previous
+    } else {
+        cli.engine.to_lowercase()
+    };
+    std::fs::write(&engine_file, &engine_name).unwrap_or_else(|e| {
+        eprintln!("{}", e);
+        std::process::exit(1);
+    });
     // Open the engine ONCE, then listen and handle connections
     match engine {
         EngineName::Kvs => {
@@ -111,8 +135,11 @@ pub fn main() {
             run_server(addr, &mut store);
         }
         EngineName::Sled => {
-            eprintln!("sled not yet implemented");
-            std::process::exit(1);
+            let mut store = SledKvsEngine::open(&current_dir).unwrap_or_else(|e| {
+                eprintln!("{}", e);
+                std::process::exit(1);
+            });
+            run_server(addr, &mut store);
         }
     }
 }

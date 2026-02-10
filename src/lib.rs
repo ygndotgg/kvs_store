@@ -4,7 +4,8 @@ pub use kvs::KvStore;
 use serde::{Deserialize, Serialize};
 pub type Result<T> = std::result::Result<T, Error>;
 pub mod kvs;
-
+pub mod sled_engine;
+pub use sled_engine::SledKvsEngine;
 #[derive(Serialize, Deserialize)]
 pub enum Cmd {
     Set { key: String, value: String },
