@@ -1,10 +1,12 @@
 use std::{
+    env,
     fmt::Display,
-    net::{SocketAddr, TcpListener},
-    process,
+    io::BufReader,
+    net::{SocketAddr, TcpListener, TcpStream},
 };
 
 use clap::Parser;
+use kvs::{KvStore, KvsEngine, Request, Response};
 use log::{error, info};
 
 #[derive(Parser)]
@@ -12,8 +14,8 @@ use log::{error, info};
 struct Cli {
     #[arg(long, default_value = "127.0.0.1:4000")]
     addr: String,
-    #[arg(long)]
-    engine: Option<String>,
+    #[arg(long, default_value = "kvs")]
+    engine: String,
 }
 
 #[derive(Debug)]
@@ -24,54 +26,114 @@ enum EngineName {
 
 impl Display for EngineName {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let fd = match self {
+        let name = match self {
             EngineName::Sled => "sled",
             EngineName::Kvs => "kvs",
         };
-        write!(f, "{}", fd)
+        write!(f, "{}", name)
     }
 }
 
-pub fn main() -> Result<(), std::io::Error> {
-    let cli = Cli::parse();
+/// Handle one client connection: read Request, call engine, write Response
+fn handle_client(stream: TcpStream, engine: &mut impl KvsEngine) {
+    let peer = stream.peer_addr().ok();
+    let reader = BufReader::new(&stream);
 
+    let request: Request = match serde_json::from_reader(reader) {
+        Ok(req) => req,
+        Err(e) => {
+            error!("failed to parse request: {}", e);
+            return;
+        }
+    };
+
+    let response = match request {
+        Request::Set { key, value } => match engine.set(key, value) {
+            Ok(()) => Response::Ok(None),
+            Err(e) => Response::Err(e.to_string()),
+        },
+        Request::Get { key } => match engine.get(key) {
+            Ok(val) => Response::Ok(val),
+            Err(e) => Response::Err(e.to_string()),
+        },
+        Request::Remove { key } => match engine.remove(key) {
+            Ok(()) => Response::Ok(None),
+            Err(e) => Response::Err(e.to_string()),
+        },
+    };
+
+    if let Err(e) = serde_json::to_writer(&stream, &response) {
+        error!("failed to write response: {}", e);
+    }
+
+    if let Some(peer) = peer {
+        info!("handled request from {}", peer);
+    }
+}
+
+pub fn main() {
     env_logger::builder()
         .filter_level(log::LevelFilter::Info)
         .init();
-    let addr = cli.addr.parse::<SocketAddr>().unwrap_or_else(|k| {
-        println!("{:?}", k);
-        process::exit(1);
+
+    let cli = Cli::parse();
+
+    let addr = cli.addr.parse::<SocketAddr>().unwrap_or_else(|e| {
+        eprintln!("{}", e);
+        std::process::exit(1);
     });
 
-    // let engine:EngineName =
-    let engine = match cli.engine {
-        Some(s) => s,
-        None => "kvs".to_string(),
-    };
-    let engine = match engine.to_lowercase().as_str() {
+    let engine = match cli.engine.to_lowercase().as_str() {
         "sled" => EngineName::Sled,
         "kvs" => EngineName::Kvs,
         _ => {
-            eprintln!("Engine Not found");
+            eprintln!("Invalid engine name: {}", cli.engine);
             std::process::exit(1);
         }
     };
-    info!("kvs-server version:{}", env!("CARGO_PKG_VERSION"));
-    info!("engine:{}", engine);
-    info!("listening on:{}", addr);
-    let listener = TcpListener::bind(addr).unwrap_or_else(|e| {
-        eprintln!("Failed to bind:{}", e);
+
+    info!("kvs-server version: {}", env!("CARGO_PKG_VERSION"));
+    info!("engine: {}", engine);
+    info!("listening on: {}", addr);
+
+    let current_dir = env::current_dir().unwrap_or_else(|e| {
+        eprintln!("{}", e);
         std::process::exit(1);
     });
+
+    // Open the engine ONCE, then listen and handle connections
+    match engine {
+        EngineName::Kvs => {
+            let mut store = KvStore::open(&current_dir).unwrap_or_else(|e| {
+                eprintln!("{}", e);
+                std::process::exit(1);
+            });
+            run_server(addr, &mut store);
+        }
+        EngineName::Sled => {
+            eprintln!("sled not yet implemented");
+            std::process::exit(1);
+        }
+    }
+}
+
+fn run_server(addr: SocketAddr, engine: &mut impl KvsEngine) {
+    let listener = TcpListener::bind(addr).unwrap_or_else(|e| {
+        eprintln!("Failed to bind: {}", e);
+        std::process::exit(1);
+    });
+
     for stream in listener.incoming() {
-        let stream = match stream {
+        match stream {
             Ok(stream) => {
-                info!("accepted connection from {}", stream.peer_addr()?);
+                if let Ok(peer) = stream.peer_addr() {
+                    info!("accepted connection from {}", peer);
+                }
+                handle_client(stream, engine);
             }
             Err(e) => {
-                error!("connection failed:{}", e);
+                error!("connection failed: {}", e);
             }
-        };
+        }
     }
-    Ok(())
 }
