@@ -1,6 +1,7 @@
 use std::{
     env,
     fmt::Display,
+    fs::create_dir,
     io::BufReader,
     net::{SocketAddr, TcpListener, TcpStream},
 };
@@ -97,9 +98,13 @@ pub fn main() {
     info!("engine: {}", engine);
     info!("listening on: {}", addr);
 
-    let current_dir = env::current_dir().unwrap_or_else(|e| {
+    let mut current_dir = env::current_dir().unwrap_or_else(|e| {
         eprintln!("{}", e);
         std::process::exit(1);
+    });
+    current_dir.push("logs");
+    create_dir(&current_dir).unwrap_or_else(|e| {
+        eprintln!("Unable to create :{}", e);
     });
 
     let engine_file = current_dir.join("engine");

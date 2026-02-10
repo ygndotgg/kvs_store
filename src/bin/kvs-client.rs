@@ -42,7 +42,7 @@ fn send_request(addr: &str, request: &Request) -> Response {
     // Connect
     let mut stream = TcpStream::connect(addr).unwrap_or_else(|e| {
         eprintln!("{}", e);
-        std::process::exit(1);
+       std::process::exit(1);
     });
 
     // Write request as JSON
@@ -52,7 +52,7 @@ fn send_request(addr: &str, request: &Request) -> Response {
     });
 
     // Shut down write half so server knows we're done sending
-    stream.shutdown(Shutdown::Write).unwrap_or_else(|e| {
+   stream.shutdown(Shutdown::Write).unwrap_or_else(|e| {
         eprintln!("{}", e);
         std::process::exit(1);
     });
