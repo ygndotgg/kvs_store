@@ -5,7 +5,11 @@ use serde::{Deserialize, Serialize};
 pub type Result<T> = std::result::Result<T, Error>;
 pub mod kvs;
 pub mod sled_engine;
+pub mod thread_pool;
+pub use server::KvServer;
 pub use sled_engine::SledKvsEngine;
+mod server;
+
 #[derive(Serialize, Deserialize)]
 pub enum Cmd {
     Set { key: String, value: String },
@@ -25,8 +29,8 @@ pub enum Response {
     Err(String),
 }
 
-pub trait KvsEngine {
-    fn set(&mut self, key: String, value: String) -> Result<()>;
-    fn get(&mut self, key: String) -> Result<Option<String>>;
-    fn remove(&mut self, key: String) -> Result<()>;
+pub trait KvsEngine: Clone + Send + 'static {
+    fn set(&self, key: String, value: String) -> Result<()>;
+    fn get(&self, key: String) -> Result<Option<String>>;
+    fn remove(&self, key: String) -> Result<()>;
 }

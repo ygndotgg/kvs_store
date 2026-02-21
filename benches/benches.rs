@@ -1,4 +1,6 @@
-use criterion::{Criterion, criterion_group, criterion_main};
+use std::net::{SocketAddr, TcpListener};
+
+use criterion::{criterion_group, criterion_main, Criterion};
 use kvs::{KvStore, KvsEngine, SledKvsEngine};
 use tempfile::TempDir;
 

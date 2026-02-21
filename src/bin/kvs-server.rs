@@ -1,15 +1,10 @@
-use std::{
-    env,
-    fmt::Display,
-    fs::create_dir,
-    io::BufReader,
-    net::{SocketAddr, TcpListener, TcpStream},
-};
+use std::{env, fmt::Display, fs::create_dir, net::SocketAddr};
 
 use clap::Parser;
-use kvs::SledKvsEngine;
-use kvs::{KvStore, KvsEngine, Request, Response};
-use log::{error, info};
+use kvs::thread_pool::SharedQueueThreadPool;
+use kvs::thread_pool::ThreadPool;
+use kvs::{KvServer, KvStore, SledKvsEngine};
+use log::info;
 
 #[derive(Parser)]
 #[command(version, about)]
@@ -33,43 +28,6 @@ impl Display for EngineName {
             EngineName::Kvs => "kvs",
         };
         write!(f, "{}", name)
-    }
-}
-
-/// Handle one client connection: read Request, call engine, write Response
-fn handle_client(stream: TcpStream, engine: &mut impl KvsEngine) {
-    let peer = stream.peer_addr().ok();
-    let reader = BufReader::new(&stream);
-
-    let request: Request = match serde_json::from_reader(reader) {
-        Ok(req) => req,
-        Err(e) => {
-            error!("failed to parse request: {}", e);
-            return;
-        }
-    };
-
-    let response = match request {
-        Request::Set { key, value } => match engine.set(key, value) {
-            Ok(()) => Response::Ok(None),
-            Err(e) => Response::Err(e.to_string()),
-        },
-        Request::Get { key } => match engine.get(key) {
-            Ok(val) => Response::Ok(val),
-            Err(e) => Response::Err(e.to_string()),
-        },
-        Request::Remove { key } => match engine.remove(key) {
-            Ok(()) => Response::Ok(None),
-            Err(e) => Response::Err(e.to_string()),
-        },
-    };
-
-    if let Err(e) = serde_json::to_writer(&stream, &response) {
-        error!("failed to write response: {}", e);
-    }
-
-    if let Some(peer) = peer {
-        info!("handled request from {}", peer);
     }
 }
 
@@ -104,7 +62,7 @@ pub fn main() {
     });
     current_dir.push("logs");
     create_dir(&current_dir).unwrap_or_else(|e| {
-        eprintln!("Unable to create :{}", e);
+        eprintln!("Unable to create: {}", e);
     });
 
     let engine_file = current_dir.join("engine");
@@ -130,42 +88,34 @@ pub fn main() {
         eprintln!("{}", e);
         std::process::exit(1);
     });
-    // Open the engine ONCE, then listen and handle connections
-    match engine {
-        EngineName::Kvs => {
-            let mut store = KvStore::open(&current_dir).unwrap_or_else(|e| {
-                eprintln!("{}", e);
-                std::process::exit(1);
-            });
-            run_server(addr, &mut store);
-        }
-        EngineName::Sled => {
-            let mut store = SledKvsEngine::open(&current_dir).unwrap_or_else(|e| {
-                eprintln!("{}", e);
-                std::process::exit(1);
-            });
-            run_server(addr, &mut store);
-        }
-    }
-}
 
-fn run_server(addr: SocketAddr, engine: &mut impl KvsEngine) {
-    let listener = TcpListener::bind(addr).unwrap_or_else(|e| {
-        eprintln!("Failed to bind: {}", e);
+    let pool = SharedQueueThreadPool::new(num_cpus::get() as u32).unwrap_or_else(|e| {
+        eprintln!("Failed to create thread pool: {}", e);
         std::process::exit(1);
     });
 
-    for stream in listener.incoming() {
-        match stream {
-            Ok(stream) => {
-                if let Ok(peer) = stream.peer_addr() {
-                    info!("accepted connection from {}", peer);
-                }
-                handle_client(stream, engine);
-            }
-            Err(e) => {
-                error!("connection failed: {}", e);
-            }
+    match engine {
+        EngineName::Kvs => {
+            let store = KvStore::open(&current_dir).unwrap_or_else(|e| {
+                eprintln!("{}", e);
+                std::process::exit(1);
+            });
+            let server = KvServer::new(addr, store, pool).unwrap_or_else(|e| {
+                eprintln!("Failed to start server: {}", e);
+                std::process::exit(1);
+            });
+            server.run();
+        }
+        EngineName::Sled => {
+            let store = SledKvsEngine::open(&current_dir).unwrap_or_else(|e| {
+                eprintln!("{}", e);
+                std::process::exit(1);
+            });
+            let server = KvServer::new(addr, store, pool).unwrap_or_else(|e| {
+                eprintln!("Failed to start server: {}", e);
+                std::process::exit(1);
+            });
+            server.run();
         }
     }
 }

@@ -7,6 +7,8 @@ use std::io::Read;
 use std::io::Seek;
 use std::io::SeekFrom;
 use std::io::Write;
+use std::sync::Arc;
+use std::sync::Mutex;
 use std::{
     collections::HashMap,
     fs::File,
@@ -25,14 +27,16 @@ struct LogPointer {
 const COMPACTION_THRESHOLD: u64 = 1024 * 1024;
 /// # A implementatoin of Key Value Store
 
+#[derive(Clone)]
 pub struct KvStore {
+    inner: Arc<Mutex<KvStoreInner>>,
+}
+
+struct KvStoreInner {
     store: HashMap<String, LogPointer>,
-    // log_path: PathBuf,
     reader: HashMap<u64, BufReader<File>>,
-    // what file we are appending to
     current_file_id: u64,
     writer: BufWriter<File>,
-    //how many bytes of dead entries exist
     uncompacted_bytes: u64,
     dir_path: PathBuf,
 }
@@ -103,16 +107,22 @@ impl KvStore {
         );
         readers.insert(current_file_id, BufReader::new(File::open(&writer_path)?));
 
-        Ok(KvStore {
+        let inner = KvStoreInner {
             store: index,
             reader: readers,
             writer,
             current_file_id,
             uncompacted_bytes: uncompacted,
             dir_path: dir,
+        };
+        Ok(KvStore {
+            inner: Arc::new(Mutex::new(inner)),
         })
     }
-    fn compact(&mut self) -> Result<()> {
+}
+
+impl KvStoreInner {
+    pub fn compact(&mut self) -> Result<()> {
         // Step A: Pick new file IDs
         let compaction_file_id = self.current_file_id + 1;
         let new_writer_file_id = self.current_file_id + 2;
@@ -127,16 +137,23 @@ impl KvStore {
         );
 
         // Step C: Write all live entries to the compaction file
+        //
         let mut new_offset: u64 = 0;
-        for log_ptr in self.store.values_mut() {
+
+        let KvStoreInner {
+            ref mut store,
+            ref mut reader,
+            ..
+        } = *self;
+
+        for (_key, log_ptr) in store.iter_mut() {
             // Read the old command from the old file
-            let reader = self
-                .reader
+            let r = reader
                 .get_mut(&log_ptr.file_id)
                 .ok_or_else(|| failure::err_msg("reader not found"))?;
-            reader.seek(SeekFrom::Start(log_ptr.offset))?;
+            r.seek(SeekFrom::Start(log_ptr.offset))?;
             let mut buf = vec![0u8; log_ptr.length as usize];
-            reader.read_exact(&mut buf)?;
+            r.read_exact(&mut buf)?;
 
             // Write it to the compaction file
             compact_writer.write_all(&buf)?;
@@ -187,66 +204,73 @@ impl KvStore {
 }
 
 impl KvsEngine for KvStore {
-    fn set(&mut self, key: String, value: String) -> Result<()> {
+    fn set(&self, key: String, value: String) -> Result<()> {
+        let mut inner = self.inner.lock().unwrap();
         let cmd: Cmd = Cmd::Set {
             key: key.clone(),
             value: value.clone(),
         };
         let serialized = serde_json::to_string(&cmd)?;
-        let offset = self.writer.seek(SeekFrom::Current(0))?;
-        writeln!(self.writer, "{}", serialized)?;
-        self.writer.flush()?;
+        let offset = inner.writer.seek(SeekFrom::Current(0))?;
+        writeln!(inner.writer, "{}", serialized)?;
+        inner.writer.flush()?;
         let length = serialized.len() as u64 + 1;
-        if let Some(old_ptr) = self.store.insert(
+        let file_id = inner.current_file_id;
+        if let Some(old_ptr) = inner.store.insert(
             key,
             LogPointer {
                 offset,
                 length,
-                file_id: self.current_file_id,
+                file_id,
             },
         ) {
-            self.uncompacted_bytes += old_ptr.length;
+            inner.uncompacted_bytes += old_ptr.length;
         }
-        if self.uncompacted_bytes > COMPACTION_THRESHOLD {
-            self.compact()?;
+        if inner.uncompacted_bytes > COMPACTION_THRESHOLD {
+            inner.compact()?;
         }
         Ok(())
     }
-    fn get(&mut self, key: String) -> Result<Option<String>> {
-        match self.store.get(&key) {
-            None => Ok(None),
-            Some(log_ptr) => {
-                let reader = self
-                    .reader
-                    .get_mut(&log_ptr.file_id)
-                    .ok_or_else(|| failure::err_msg("Log file not found"))?;
-                reader.seek(SeekFrom::Start(log_ptr.offset))?;
-                let mut buf = vec![0u8; log_ptr.length as usize];
-                reader.read_exact(&mut buf)?;
-                let line = String::from_utf8(buf)?;
-                let cmd: Cmd = serde_json::from_str(line.trim())?;
-                match cmd {
-                    Cmd::Set { value, .. } => Ok(Some(value)),
-                    Cmd::Rm { .. } => Ok(None),
-                }
-            }
+    fn get(&self, key: String) -> Result<Option<String>> {
+        let mut inner = self.inner.lock().unwrap();
+        let log_ptr = match inner.store.get(&key) {
+            None => return Ok(None),
+            Some(ptr) => LogPointer {
+                offset: ptr.offset,
+                length: ptr.length,
+                file_id: ptr.file_id,
+            },
+        };
+        let reader = inner
+            .reader
+            .get_mut(&log_ptr.file_id)
+            .ok_or_else(|| failure::err_msg("Log file not found"))?;
+        reader.seek(SeekFrom::Start(log_ptr.offset))?;
+        let mut buf = vec![0u8; log_ptr.length as usize];
+        reader.read_exact(&mut buf)?;
+        let line = String::from_utf8(buf)?;
+        let cmd: Cmd = serde_json::from_str(line.trim())?;
+        match cmd {
+            Cmd::Set { value, .. } => Ok(Some(value)),
+            Cmd::Rm { .. } => Ok(None),
         }
     }
 
-    fn remove(&mut self, key: String) -> Result<()> {
-        if !self.store.contains_key(&key) {
+    fn remove(&self, key: String) -> Result<()> {
+        let mut inner = self.inner.lock().unwrap();
+        if !inner.store.contains_key(&key) {
             return Err(failure::err_msg("Key not found"));
         }
         let cmd = Cmd::Rm { key: key.clone() };
         let serialized = serde_json::to_string(&cmd)?;
-        writeln!(self.writer, "{}", serialized)?;
-        self.writer.flush()?;
-        if let Some(old_ptr) = self.store.remove(&key) {
-            self.uncompacted_bytes += old_ptr.length;
+        writeln!(inner.writer, "{}", serialized)?;
+        inner.writer.flush()?;
+        if let Some(old_ptr) = inner.store.remove(&key) {
+            inner.uncompacted_bytes += old_ptr.length;
         }
-        self.uncompacted_bytes += serialized.len() as u64 + 1;
-        if self.uncompacted_bytes > COMPACTION_THRESHOLD {
-            self.compact()?;
+        inner.uncompacted_bytes += serialized.len() as u64 + 1;
+        if inner.uncompacted_bytes > COMPACTION_THRESHOLD {
+            inner.compact()?;
         }
         Ok(())
     }
