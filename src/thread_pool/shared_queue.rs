@@ -19,12 +19,6 @@ pub struct SharedQueueThreadPool {
 }
 
 impl super::ThreadPool for SharedQueueThreadPool {
-    fn spawn<F>(&self, job: F)
-    where
-        F: FnOnce() + Send + 'static,
-    {
-        self.sender.send(Message::Job(Box::new(job))).unwrap();
-    }
     fn new(threads: u32) -> crate::Result<Self>
     where
         Self: Sized,
@@ -34,7 +28,7 @@ impl super::ThreadPool for SharedQueueThreadPool {
         let receiver = Arc::new(Mutex::new(rx));
         for _ in 0..threads {
             let receiver = receiver.clone();
-            let d = thread::spawn(move || loop {
+            let handle = thread::spawn(move || loop {
                 let item = receiver.lock().unwrap().recv();
                 match item {
                     Ok(Message::Job(j)) => {
@@ -43,12 +37,21 @@ impl super::ThreadPool for SharedQueueThreadPool {
                     Ok(Message::Terminate) | Err(_) => break,
                 }
             });
-            workers.push(Worker { handle: Some(d) });
+            workers.push(Worker {
+                handle: Some(handle),
+            });
         }
         Ok(SharedQueueThreadPool {
             sender: tx,
             workers,
         })
+    }
+
+    fn spawn<F>(&self, job: F)
+    where
+        F: FnOnce() + Send + 'static,
+    {
+        self.sender.send(Message::Job(Box::new(job))).unwrap();
     }
 }
 
