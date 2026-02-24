@@ -8,7 +8,7 @@ use std::io::Seek;
 use std::io::SeekFrom;
 use std::io::Write;
 use std::sync::Arc;
-use std::sync::Mutex;
+use std::sync::RwLock;
 use std::{
     collections::HashMap,
     fs::File,
@@ -29,7 +29,7 @@ const COMPACTION_THRESHOLD: u64 = 1024 * 1024;
 
 #[derive(Clone)]
 pub struct KvStore {
-    inner: Arc<Mutex<KvStoreInner>>,
+    inner: Arc<RwLock<KvStoreInner>>,
 }
 
 struct KvStoreInner {
@@ -116,7 +116,7 @@ impl KvStore {
             dir_path: dir,
         };
         Ok(KvStore {
-            inner: Arc::new(Mutex::new(inner)),
+            inner: Arc::new(RwLock::new(inner)),
         })
     }
 }
@@ -205,7 +205,7 @@ impl KvStoreInner {
 
 impl KvsEngine for KvStore {
     fn set(&self, key: String, value: String) -> Result<()> {
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self.inner.write().unwrap();
         let cmd: Cmd = Cmd::Set {
             key: key.clone(),
             value: value.clone(),
@@ -232,7 +232,7 @@ impl KvsEngine for KvStore {
         Ok(())
     }
     fn get(&self, key: String) -> Result<Option<String>> {
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self.inner.write().unwrap();
         let log_ptr = match inner.store.get(&key) {
             None => return Ok(None),
             Some(ptr) => LogPointer {
@@ -257,7 +257,7 @@ impl KvsEngine for KvStore {
     }
 
     fn remove(&self, key: String) -> Result<()> {
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self.inner.write().unwrap();
         if !inner.store.contains_key(&key) {
             return Err(failure::err_msg("Key not found"));
         }
