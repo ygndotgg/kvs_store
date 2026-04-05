@@ -80,6 +80,16 @@ export function Navigation() {
 
           <div className="hidden items-center gap-4 md:flex">
             <a
+              href="https://github.com/ygndotgg/kvs_store"
+              target="_blank"
+              rel="noreferrer"
+              className={`transition-all duration-500 ${
+                isScrolled ? "text-xs text-foreground/70 hover:text-foreground" : "text-sm text-white/70 hover:text-white"
+              }`}
+            >
+              GitHub
+            </a>
+            <a
               href="#developers"
               className={`transition-all duration-500 ${
                 isScrolled ? "text-xs text-foreground/70 hover:text-foreground" : "text-sm text-white/70 hover:text-white"
@@ -138,6 +148,16 @@ export function Navigation() {
             }`}
             style={{ transitionDelay: isMobileMenuOpen ? "300ms" : "0ms" }}
           >
+            <Button variant="outline" className="h-14 flex-1 rounded-full text-base" asChild>
+              <a
+                href="https://github.com/ygndotgg/kvs_store"
+                target="_blank"
+                rel="noreferrer"
+                onClick={() => setIsMobileMenuOpen(false)}
+              >
+                GitHub
+              </a>
+            </Button>
             <Button variant="outline" className="h-14 flex-1 rounded-full text-base" asChild>
               <a href="#developers" onClick={() => setIsMobileMenuOpen(false)}>
                 View commands

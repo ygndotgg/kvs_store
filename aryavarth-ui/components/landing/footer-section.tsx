@@ -21,8 +21,8 @@ const footerLinks = {
 };
 
 const socialLinks = [
-  { name: "GitHub", href: "#" },
-  { name: "Project", href: "#" },
+  { name: "GitHub", href: "https://github.com/ygndotgg/kvs_store" },
+  { name: "Project", href: "https://github.com/ygndotgg/kvs_store" },
 ];
 
 export function FooterSection() {
@@ -54,6 +54,8 @@ export function FooterSection() {
                   <a
                     key={link.name}
                     href={link.href}
+                    target="_blank"
+                    rel="noreferrer"
                     className="group flex items-center gap-1 text-sm text-white/40 transition-colors hover:text-white"
                   >
                     {link.name}
